@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { generateDemoAnalysis } from '@/lib/demoAnalysis';
+
+const DEFAULT_MODEL = 'Qwen/Qwen2.5-7B-Instruct';
 
 export async function POST(req: Request) {
-  // Initialize the OpenAI SDK targeting the Featherless API
-  // Note: NEXT_PUBLIC_ is NOT used to protect the API key from the client.
-  const client = new OpenAI({
-    baseURL: 'https://api.featherless.ai/v1',
-    apiKey: process.env.FEATHERLESS_API_KEY || 'DUMMY_KEY_FOR_BUILD',
-  });
   try {
     const body = await req.json();
     const { complaint } = body;
@@ -16,22 +13,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid or missing complaint text.' }, { status: 400 });
     }
 
-    console.log("[CivicAI] Running from:", process.cwd());
-    const apiKey = process.env.FEATHERLESS_API_KEY;
-    const model = process.env.FEATHERLESS_MODEL;
+    const apiKey = process.env.FEATHERLESS_API_KEY?.trim();
+    const model = process.env.FEATHERLESS_MODEL?.trim() || DEFAULT_MODEL;
 
-    console.log("[CivicAI] FEATHERLESS_API_KEY loaded:", Boolean(apiKey));
-    console.log("[CivicAI] FEATHERLESS_MODEL:", model || "MISSING");
+    console.log('[CivicAI] Running from:', process.cwd());
+    console.log('[CivicAI] FEATHERLESS_API_KEY loaded:', Boolean(apiKey));
+    console.log('[CivicAI] FEATHERLESS_MODEL:', model);
 
     if (!apiKey) {
-      console.error("[CivicAI] FEATHERLESS_API_KEY is missing");
-      return NextResponse.json({ error: 'FEATHERLESS_API_KEY missing' }, { status: 500 });
+      console.warn(
+        '[CivicAI] FEATHERLESS_API_KEY missing — using deterministic demo analysis fallback.'
+      );
+      return NextResponse.json(generateDemoAnalysis(complaint));
     }
 
-    if (!model) {
-      console.error("[CivicAI] FEATHERLESS_MODEL is missing");
-      return NextResponse.json({ error: 'FEATHERLESS_MODEL missing' }, { status: 500 });
-    }
+    const client = new OpenAI({
+      baseURL: 'https://api.featherless.ai/v1',
+      apiKey,
+    });
 
     console.log('[CivicAI] Received grievance:', complaint.substring(0, 50) + '...');
     console.log('[CivicAI] Calling Featherless API...');
@@ -53,7 +52,7 @@ Extract and return exactly these fields based on the complaint:
 - "reasoning": string (a concise explanation of why you assigned these specific severity and urgency scores)
 - "recommendedAction": string (a brief suggested immediate next step for the department)`;
 
-    const modelId = process.env.FEATHERLESS_MODEL || 'Qwen/Qwen2.5-7B-Instruct';
+    const modelId = model;
 
     let response;
     try {
