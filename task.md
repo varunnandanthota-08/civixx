@@ -1,0 +1,29 @@
+# Task Tracker - Featherless AI Integration
+
+- `[x]` Create and receive approval on Implementation Plan.
+- `[x]` **Phase 1: Environment & Config Setup**
+  - `[x]` Fix `.gitignore` directory structure issue.
+  - `[x]` Create root `.env.local` file for API key entry.
+  - `[x]` Ensure `.env.local` is listed inside `.gitignore` file.
+- `[x]` **Phase 2: Deterministic Utilities (`lib/dataUtils.ts`)**
+  - `[x]` Add `calculateDeterministicPriority` function.
+  - `[x]` Add `getDepartmentKnowledge` function.
+  - `[x]` Add `findRelatedHistoricalGrievances` deterministic matcher.
+- `[x]` **Phase 3: Server-Side AI API Route (`app/api/analyze-grievance/route.ts`)**
+  - `[x]` Create POST route accepting complaint input.
+  - `[x]` Initialize OpenAI SDK configured for Featherless.
+  - `[x]` Construct strong system prompt for strictly structured JSON output.
+  - `[x]` Parse LLM output and return clean response format.
+- `[x]` **Phase 4: AI Service Client Updates (`lib/aiService.ts`)**
+  - `[x]` Call the internal API route instead of deterministic mock.
+  - `[x]` Pipe API results into deterministic prioritization.
+  - `[x]` Fetch department SLA knowledge and historical grievances.
+  - `[x]` Return comprehensive `AIAnalysisResult` for UI.
+- `[x]` **Phase 5: Citizen UI Updates (`app/citizen/page.tsx`)**
+  - `[x]` Map 5-step animation alongside actual `fetch()` promise.
+  - `[x]` Update result renderers to dynamically use JSON data.
+  - `[x]` Add robust error states if the API is down.
+- `[x]` **Phase 6: QA & Build Verification**
+  - `[x]` Run `npx tsc --noEmit` to ensure strict typings.
+  - `[x]` Verify successful `npm run build`.
+  - `[x]` Generate `walkthrough.md` report.

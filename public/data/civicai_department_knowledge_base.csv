@@ -1,0 +1,7 @@
+department,responsibilities,sla_policy,escalation_owner,recommended_resolution_steps
+Water Supply Department,"Water supply interruptions, pressure issues, damaged pipelines",24h emergency; 72h standard,Zone Water Officer,Dispatch field inspection; verify supply line; arrange emergency tanker support when necessary
+GHMC Roads Department,"Potholes, damaged roads, unsafe road surfaces",72h standard; immediate barricading for hazards,Local Engineering Officer,Inspect site; barricade severe hazards; schedule repair
+Sanitation Department,"Garbage collection, overflowing bins, waste accumulation",48h standard,Sanitation Supervisor,Dispatch sanitation crew; increase collection frequency; inspect hotspot
+Electricity Distribution Department,"Power outage, transformer overload, damaged electric poles",24h standard; immediate response for safety hazards,Field Engineer,Inspect feeder/transformer; isolate hazards; restore service
+Storm Water & Drainage Department,"Blocked drains, waterlogging, flooding risks",24h for flooding; 72h standard,Drainage Engineering Officer,Dispatch drainage crew; clear blockage; inspect storm-water line
+Public Safety Department,"Streetlight hazards, dangerous public locations, unsafe infrastructure",12h urgent,Local Safety Officer,Inspect site; mitigate immediate risk; escalate safety hazard
