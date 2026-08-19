@@ -13,9 +13,10 @@ import Link from 'next/link';
 interface ComplaintDrawerProps {
   grievance: Grievance | null;
   onClose: () => void;
+  onStatusChange?: (grievanceId: string, status: 'Confirmed Assigned' | 'In Progress' | 'Resolved', note?: string) => void;
 }
 
-export const ComplaintDrawer: React.FC<ComplaintDrawerProps> = ({ grievance, onClose }) => {
+export const ComplaintDrawer: React.FC<ComplaintDrawerProps> = ({ grievance, onClose, onStatusChange }) => {
   const [related, setRelated] = useState<Grievance[]>([]);
   const [deptInfo, setDeptInfo] = useState<DepartmentKnowledge | null>(null);
 
@@ -28,8 +29,8 @@ export const ComplaintDrawer: React.FC<ComplaintDrawerProps> = ({ grievance, onC
 
   if (!grievance) return null;
 
-  // Derive time remaining simply (since we don't have active countdowns in dataset, we mock based on status)
-  const timeRemainingHours = grievance.status === 'Resolved' ? 0 : Math.max(0, grievance.sla_hours - 6);
+  // Legacy dataset rows do not have a created-at SLA clock; stored citizen rows are normalized by the officer page.
+  const timeRemainingHours = grievance.workflowTimeRemaining ? Number.parseInt(grievance.workflowTimeRemaining, 10) || 0 : grievance.status === 'Resolved' ? 0 : Math.max(0, grievance.sla_hours - 6);
   const slaPercentage = Math.max(0, Math.min(100, (timeRemainingHours / grievance.sla_hours) * 100));
   
   const aiExplanation = generatePriorityExplanation(grievance);
@@ -195,7 +196,7 @@ export const ComplaintDrawer: React.FC<ComplaintDrawerProps> = ({ grievance, onC
 
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-300 font-medium">Target SLA: {grievance.sla_hours}h</span>
-                <span className="font-mono text-indigo-300 font-bold">{grievance.status === 'Resolved' ? 'RESOLVED' : `${timeRemainingHours}h remaining`}</span>
+                <span className={`font-mono font-bold ${grievance.workflowSlaStatus === 'SLA Breached' ? 'text-red-400' : 'text-indigo-300'}`}>{grievance.status === 'Resolved' ? grievance.workflowSlaStatus || 'RESOLVED' : (grievance.workflowTimeRemaining || `${timeRemainingHours}h remaining`)}</span>
               </div>
 
               <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden p-0.5 border border-slate-700">
@@ -208,6 +209,8 @@ export const ComplaintDrawer: React.FC<ComplaintDrawerProps> = ({ grievance, onC
                 />
               </div>
             </div>
+
+            {grievance.history && <div className="p-4 rounded-xl bg-slate-950/90 border border-slate-800 space-y-3"><h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Resolution History</h4>{grievance.history.map((event) => <div key={`${event.status}-${event.timestamp}`} className="border-l-2 border-indigo-500/50 pl-3"><p className="text-sm font-bold text-slate-200">{event.status}</p><p className="text-[11px] text-slate-500">{new Date(event.timestamp).toLocaleString()}</p><p className="text-xs text-slate-300 mt-1">{event.action}</p><p className="text-[11px] text-slate-500">{event.department}</p></div>)}{grievance.resolutionNote && <p className="text-xs text-emerald-300">Resolution Note: {grievance.resolutionNote}</p>}</div>}
           </div>
         </div>
 
@@ -215,11 +218,23 @@ export const ComplaintDrawer: React.FC<ComplaintDrawerProps> = ({ grievance, onC
         {grievance.status !== 'Resolved' && (
           <div className="pt-6 mt-6 border-t border-slate-800 grid grid-cols-2 gap-3">
             <button
-              onClick={onClose}
+              onClick={() => {
+                if (!onStatusChange) return onClose();
+                if (grievance.status === 'In Progress') {
+                  const note = window.prompt('Resolution Note');
+                  if (!note?.trim()) return;
+                  onStatusChange(grievance.grievance_id, 'Resolved', note.trim());
+                } else if (grievance.status === 'Confirmed Assigned') {
+                  onStatusChange(grievance.grievance_id, 'In Progress');
+                } else {
+                  onStatusChange(grievance.grievance_id, 'Confirmed Assigned');
+                }
+                onClose();
+              }}
               className="w-full py-2.5 px-4 text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors flex items-center justify-center gap-2"
             >
               <CheckCircle className="w-4 h-4 text-emerald-400" />
-              <span>Mark Resolved</span>
+              <span>{grievance.status === 'In Progress' ? 'Mark as Resolved' : grievance.status === 'Confirmed Assigned' ? 'Mark In Progress' : 'Confirm Assigned'}</span>
             </button>
             <button
               onClick={onClose}

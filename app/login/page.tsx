@@ -18,15 +18,17 @@ import {
   getCurrentUser,
   getDashboardPath,
   login,
+  OfficerDepartment,
   UserRole,
 } from '@/lib/auth';
 
-type LoginStep = 'role' | 'credentials';
+type LoginStep = 'role' | 'department' | 'credentials';
 
 export default function LoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<LoginStep>('role');
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
+  const [selectedDepartment, setSelectedDepartment] = useState<OfficerDepartment | null>(null);
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -46,7 +48,7 @@ export default function LoginPage() {
 
   const handleRoleSelect = (role: UserRole) => {
     setSelectedRole(role);
-    setStep('credentials');
+    setStep(role === 'officer' ? 'department' : 'credentials');
     setError(null);
     setIdentifier('');
     setPassword('');
@@ -55,6 +57,7 @@ export default function LoginPage() {
   const handleBackToRoles = () => {
     setStep('role');
     setSelectedRole(null);
+    setSelectedDepartment(null);
     setError(null);
     setIdentifier('');
     setPassword('');
@@ -67,7 +70,8 @@ export default function LoginPage() {
     setIsSubmitting(true);
     setError(null);
 
-    const result = login(selectedRole, identifier, password);
+    const authRole: UserRole = selectedRole === 'officer' && selectedDepartment === 'Admin' ? 'admin' : selectedRole;
+    const result = login(authRole, identifier, password, selectedDepartment || undefined);
 
     if (!result.success) {
       setError(result.error);
@@ -75,7 +79,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.push(getDashboardPath(selectedRole));
+    router.push(getDashboardPath(authRole));
   };
 
   if (isCheckingSession) {
@@ -88,7 +92,8 @@ export default function LoginPage() {
   }
 
   const citizenDemo = demoUsers.find((user) => user.role === 'citizen')!;
-  const officerDemo = demoUsers.find((user) => user.role === 'officer')!;
+  const officerDemo = demoUsers.find((user) => user.role === 'officer' && user.department === 'Water Supply')!;
+  const adminDemo = demoUsers.find((user) => user.role === 'admin')!;
 
   return (
     <div className="min-h-[calc(100vh-2rem)] flex items-center justify-center py-8">
@@ -187,6 +192,13 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
+            ) : step === 'department' ? (
+              <div className="space-y-6">
+                <div><button type="button" onClick={handleBackToRoles} className="text-xs text-slate-500 hover:text-slate-300 transition-colors mb-3">← Change role</button><h2 className="text-xl font-bold text-white">Select department</h2><p className="text-sm text-slate-400 mt-1">Choose the department you represent</p></div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {(['Drainage', 'Electricity', 'Public Safety', 'Roads', 'Sanitation', 'Water Supply', 'Admin'] as OfficerDepartment[]).map((department) => <button key={department} type="button" onClick={() => { setSelectedDepartment(department); setStep('credentials'); setError(null); }} className="text-left p-4 rounded-xl border border-slate-700/80 bg-slate-950/50 hover:border-indigo-500/50 hover:bg-indigo-950/30 transition-colors"><span className="font-bold text-slate-100">{department}</span><span className="block text-xs text-slate-500 mt-1">{department === 'Admin' ? 'Full grievance access' : `${department} operations`}</span></button>)}
+                </div>
+              </div>
             ) : (
               <div className="space-y-6">
                 <div>
@@ -204,7 +216,7 @@ export default function LoginPage() {
                         selectedRole === 'citizen' ? 'text-cyan-400' : 'text-indigo-400'
                       }
                     >
-                      {selectedRole === 'citizen' ? 'Citizen' : 'Officer'}
+                      {selectedRole === 'citizen' ? 'Citizen' : selectedDepartment === 'Admin' ? 'Admin' : `${selectedDepartment} Officer`}
                     </span>
                   </h2>
                   <p className="text-sm text-slate-400 mt-1">
@@ -218,7 +230,7 @@ export default function LoginPage() {
                       htmlFor="identifier"
                       className="block text-sm font-medium text-slate-300 mb-1.5"
                     >
-                      {selectedRole === 'citizen' ? 'Email / Phone' : 'Officer ID / Email'}
+                      {selectedRole === 'citizen' ? 'Email / Phone' : selectedDepartment === 'Admin' ? 'Admin Email' : 'Officer Email'}
                     </label>
                     <input
                       id="identifier"
@@ -230,7 +242,7 @@ export default function LoginPage() {
                       placeholder={
                         selectedRole === 'citizen'
                           ? 'citizen@civicai.demo'
-                          : 'officer@civicai.demo'
+                          : selectedDepartment === 'Admin' ? 'admin@civicai.demo' : `${selectedDepartment?.toLowerCase().replace(/ /g, '')}@civicai.demo`
                       }
                       className="w-full px-4 py-2.5 rounded-xl bg-slate-950/80 border border-slate-700/80 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
                     />
@@ -290,7 +302,7 @@ export default function LoginPage() {
                         Signing in...
                       </>
                     ) : (
-                      'Sign In'
+                      selectedRole === 'citizen' ? 'Sign In' : selectedDepartment === 'Admin' ? 'Sign In as Admin' : `Sign In as ${selectedDepartment} Officer`
                     )}
                   </button>
                 </form>
@@ -328,6 +340,11 @@ export default function LoginPage() {
                     <p className="font-semibold text-indigo-400 mb-1">Officer</p>
                     <p className="text-slate-400 font-mono text-xs">{officerDemo.identifier}</p>
                     <p className="text-slate-400 font-mono text-xs">{officerDemo.password}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800">
+                    <p className="font-semibold text-amber-400 mb-1">Admin</p>
+                    <p className="text-slate-400 font-mono text-xs">{adminDemo.identifier}</p>
+                    <p className="text-slate-400 font-mono text-xs">{adminDemo.password}</p>
                   </div>
                 </div>
               )}

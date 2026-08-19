@@ -1,11 +1,17 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { analyzeGrievance, AIAnalysisResult } from '@/lib/aiService';
+import { CitizenGrievance } from '@/lib/types';
+import { toCanonicalDepartment } from '@/lib/departments';
+import { addCitizenGrievance, awardReward, formatCountdown, getCitizenGrievances, getCitizenSession, getRewardState, GRIEVANCES_CHANGE_EVENT, parseSLAHours, updateCitizenGrievance, updateGrievanceStatus } from '@/lib/citizenStorage';
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
 import { DepartmentBadge } from '@/components/ui/DepartmentBadge';
 import { SeverityIndicator } from '@/components/ui/SeverityIndicator';
 import { AIInsightCard } from '@/components/ui/AIInsightCard';
+import { ResolutionTimeline } from '@/components/citizen/ResolutionTimeline';
+import { FeedbackPanel } from '@/components/citizen/FeedbackPanel';
+import { CivicRewards } from '@/components/citizen/CivicRewards';
 import {
   Sparkles,
   ShieldCheck,
@@ -31,7 +37,14 @@ export default function CitizenPage() {
   );
   const [location, setLocation] = useState('Madhapur, Sector 3, Hyderabad');
   const [phone, setPhone] = useState('+91 98765 43210');
-  const [imageAttached, setImageAttached] = useState(true);
+  const [imageAttached, setImageAttached] = useState(false);
+  const [image, setImage] = useState<File | undefined>();
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [grievances, setGrievances] = useState<CitizenGrievance[]>([]);
+  const [rewardState, setRewardState] = useState(getRewardState());
+  const [clock, setClock] = useState(Date.now());
 
   // Analysis States
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -48,6 +61,47 @@ export default function CitizenPage() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  useEffect(() => {
+    const refresh = () => {
+      setGrievances(getCitizenGrievances());
+      setRewardState(getRewardState());
+      setClock(Date.now());
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 60000);
+    window.addEventListener('storage', refresh);
+    window.addEventListener(GRIEVANCES_CHANGE_EVENT, refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener(GRIEVANCES_CHANGE_EVENT, refresh);
+    };
+  }, []);
+
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = event.target.files?.[0];
+    setImageError(null);
+    if (!selected) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(selected.type)) {
+      setImageError('Please choose a JPG, PNG, or WEBP image.');
+      return;
+    }
+    if (selected.size > 5 * 1024 * 1024) {
+      setImageError('Image must be 5 MB or smaller.');
+      return;
+    }
+    setImage(selected);
+    setImageAttached(true);
+    setImagePreview(URL.createObjectURL(selected));
+  };
+
+  const removeImage = () => {
+    setImage(undefined);
+    setImageAttached(false);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description.trim()) return;
@@ -59,7 +113,7 @@ export default function CitizenPage() {
 
     try {
       // 1. Kick off actual API call in the background
-      const aiPromise = analyzeGrievance(description, location);
+      const aiPromise = analyzeGrievance(description, location, phone, image);
 
       // 2. Step by step animation timing for hackathon presentation UI
       for (let i = 0; i < analysisSteps.length; i++) {
@@ -70,6 +124,36 @@ export default function CitizenPage() {
       // 3. Await the actual API completion and populate real data
       const aiRes = await aiPromise;
       setResult(aiRes);
+      const createdAt = new Date().toISOString();
+      const canonicalDepartment = toCanonicalDepartment(aiRes.department) || 'Public Safety';
+      const duplicateComplaint = getCitizenGrievances().some((existing) => existing.description.trim().toLowerCase() === description.trim().toLowerCase() && existing.location.trim().toLowerCase() === location.trim().toLowerCase());
+      const grievance: CitizenGrievance = {
+        grievanceId: aiRes.grievanceId,
+        createdAt,
+        suggestedSLAHours: parseSLAHours(aiRes.suggestedSLA),
+        status: 'Registered',
+        feedbackRating: null,
+        feedbackComment: '',
+        feedbackSubmittedAt: null,
+        description,
+        location,
+        phone,
+        department: canonicalDepartment,
+        category: aiRes.category,
+        priority: aiRes.priority,
+        priorityScore: aiRes.priorityScore,
+        recommendedAction: aiRes.recommendedAction,
+        finalResolutionNote: '',
+        history: [
+          { status: 'Registered', timestamp: createdAt, department: canonicalDepartment, action: 'Complaint submitted' },
+          { status: 'AI Analyzed', timestamp: createdAt, department: canonicalDepartment, action: `Priority: ${aiRes.priority.toUpperCase()}` },
+        ],
+        rewardEvents: duplicateComplaint ? [] : [`registered:${aiRes.grievanceId}`],
+      };
+      addCitizenGrievance(grievance);
+      if (!duplicateComplaint) awardReward(`registered:${aiRes.grievanceId}`, 5);
+      setGrievances(getCitizenGrievances());
+      setRewardState(getRewardState());
     } catch (err: any) {
       console.error('Submission failed:', err);
       setErrorMsg(err.message || 'AI analysis is temporarily unavailable. Please try again.');
@@ -82,6 +166,25 @@ export default function CitizenPage() {
     setDescription(text);
     setLocation(loc);
     setResult(null);
+  };
+
+  const changeStatus = (grievanceId: string, status: 'Confirmed Assigned' | 'In Progress' | 'Resolved') => {
+    const action = status === 'Confirmed Assigned' ? 'Department assignment confirmed' : status === 'In Progress' ? 'Field inspection initiated' : 'Service restored and complaint resolved';
+    const updated = updateGrievanceStatus(grievanceId, status, action, status === 'Resolved' ? 'Resolution confirmed by the responsible department.' : '');
+    if (updated) {
+      if (status === 'Resolved') {
+        awardReward(`resolved:${grievanceId}`, 50, true);
+      }
+      setGrievances(getCitizenGrievances());
+      setRewardState(getRewardState());
+    }
+  };
+
+  const submitFeedback = (grievanceId: string, rating: number, comment: string) => {
+    updateCitizenGrievance(grievanceId, (grievance) => ({ ...grievance, feedbackRating: rating, feedbackComment: comment, feedbackSubmittedAt: new Date().toISOString(), rewardEvents: [...grievance.rewardEvents, `feedback:${grievanceId}`] }));
+    awardReward(`feedback:${grievanceId}`, 10);
+    setGrievances(getCitizenGrievances());
+    setRewardState(getRewardState());
   };
 
   return (
@@ -169,12 +272,12 @@ export default function CitizenPage() {
               </div>
             </div>
 
-            {/* Photo Attachment Placeholder */}
+            {/* Photo Attachment */}
             <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-3 text-xs">
                 <button
                   type="button"
-                  onClick={() => setImageAttached(!imageAttached)}
+                  onClick={() => fileInputRef.current?.click()}
                   className={`p-2 rounded-lg border transition-colors ${
                     imageAttached
                       ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
@@ -185,21 +288,24 @@ export default function CitizenPage() {
                 </button>
                 <div>
                   <span className="font-semibold text-slate-200 block">
-                    {imageAttached ? 'water_shortage_photo.jpg attached' : 'Attach Photo Evidence'}
+                    {image ? `${image.name} attached` : imageAttached ? 'Attach Photo Evidence' : 'Attach Photo Evidence'}
                   </span>
                   <span className="text-slate-500 text-[11px]">
-                    {imageAttached ? 'AI verified image metadata (GPS tagged)' : 'Supports JPG, PNG up to 5MB'}
+                    {image ? `${(image.size / 1024 / 1024).toFixed(2)} MB` : 'Supports JPG, PNG, WEBP up to 5MB'}
                   </span>
                 </div>
               </div>
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} className="hidden" />
+              {imagePreview && <img src={imagePreview} alt="Selected evidence" className="w-12 h-12 rounded-lg object-cover border border-slate-700" />}
               <button
                 type="button"
-                onClick={() => setImageAttached(!imageAttached)}
+                onClick={() => image ? removeImage() : fileInputRef.current?.click()}
                 className="text-xs text-indigo-400 hover:underline font-medium"
               >
-                {imageAttached ? 'Remove' : 'Browse'}
+                {image ? 'Remove Photo' : 'Browse'}
               </button>
             </div>
+            {imageError && <p className="text-xs text-red-400">{imageError}</p>}
 
             {/* Submit CTA */}
             <button
@@ -513,6 +619,26 @@ export default function CitizenPage() {
           </div>
         </div>
       )}
+
+      {/* CITIZEN CASE MANAGEMENT */}
+      <section className="space-y-6 pt-4" id="my-grievances">
+        <div className="flex items-end justify-between gap-4 border-b border-slate-800 pb-4">
+          <div><p className="text-xs font-bold uppercase tracking-wider text-indigo-400">Citizen services</p><h2 className="text-2xl font-black text-white mt-1">My Grievances</h2><p className="text-sm text-slate-400 mt-1">Track SLA progress, history, and feedback for your registered complaints.</p></div>
+          <span className="text-xs text-slate-500">{grievances.length} registered</span>
+        </div>
+        <nav className="flex flex-wrap gap-2" aria-label="Citizen grievance sections"><a href="#my-grievances" className="px-3 py-2 rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-xs font-bold text-indigo-200">My Grievances</a><a href="#resolution-history" className="px-3 py-2 rounded-lg border border-slate-700 text-xs text-slate-300">Resolution History</a><a href="#feedback" className="px-3 py-2 rounded-lg border border-slate-700 text-xs text-slate-300">Feedback</a><a href="#civic-rewards" className="px-3 py-2 rounded-lg border border-slate-700 text-xs text-slate-300">Civic Rewards</a><a href="#leaderboard" className="px-3 py-2 rounded-lg border border-slate-700 text-xs text-slate-300">Leaderboard</a></nav>
+        {grievances.length === 0 ? <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 text-sm text-slate-400">Your submitted grievances will appear here after AI analysis.</div> : grievances.map((grievance) => (
+          <article key={grievance.grievanceId} className="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-5">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-sm text-indigo-400">{grievance.grievanceId}</span><PriorityBadge priority={grievance.priority} /><DepartmentBadge category={grievance.category} /></div><p className="text-sm text-slate-200 mt-2">{grievance.description}</p><p className="text-xs text-slate-500 mt-1">{grievance.location} · {grievance.department}</p></div><div className="text-right"><span className="text-xs font-bold text-emerald-400">{grievance.status}</span><p className="text-xs text-slate-400 mt-1">{formatCountdown(grievance, clock)}</p>{grievance.status !== 'Resolved' && <span className="text-[11px] text-slate-500">SLA: {grievance.suggestedSLAHours} hours</span>}</div></div>
+            <div className="flex flex-wrap gap-2"><button type="button" onClick={() => changeStatus(grievance.grievanceId, 'Confirmed Assigned')} disabled={grievance.status !== 'Registered'} className="px-3 py-2 rounded-lg border border-slate-700 text-xs text-slate-300 disabled:opacity-40">Confirm Assigned</button><button type="button" onClick={() => changeStatus(grievance.grievanceId, 'In Progress')} disabled={grievance.status !== 'Confirmed Assigned'} className="px-3 py-2 rounded-lg border border-slate-700 text-xs text-slate-300 disabled:opacity-40">Mark In Progress</button><button type="button" onClick={() => changeStatus(grievance.grievanceId, 'Resolved')} disabled={grievance.status !== 'In Progress'} className="px-3 py-2 rounded-lg bg-emerald-600/80 text-xs font-bold text-white disabled:opacity-40">Mark Resolved</button></div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><div id="resolution-history"><h3 className="text-sm font-bold text-slate-200 mb-4">Resolution History</h3><ResolutionTimeline grievance={grievance} /></div><div id="feedback"><FeedbackPanel grievance={grievance} onSubmit={(rating, comment) => submitFeedback(grievance.grievanceId, rating, comment)} /></div></div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-slate-800 text-xs"><div><span className="text-slate-500 block">Total resolution time</span><strong className="text-slate-200">{grievance.status === 'Resolved' ? `${Math.max(1, Math.round((new Date(grievance.history[grievance.history.length - 1].timestamp).getTime() - new Date(grievance.createdAt).getTime()) / 3600000))} hours` : 'In progress'}</strong></div><div><span className="text-slate-500 block">SLA</span><strong className={grievance.status === 'Resolved' && new Date(grievance.history[grievance.history.length - 1].timestamp).getTime() > new Date(grievance.createdAt).getTime() + grievance.suggestedSLAHours * 3600000 ? 'text-red-400' : 'text-emerald-400'}>{grievance.status === 'Resolved' ? (new Date(grievance.history[grievance.history.length - 1].timestamp).getTime() > new Date(grievance.createdAt).getTime() + grievance.suggestedSLAHours * 3600000 ? 'SLA Breached' : 'SLA Met') : 'Monitoring'}</strong></div><div><span className="text-slate-500 block">Final resolution note</span><strong className="text-slate-200">{grievance.finalResolutionNote || 'Awaiting resolution'}</strong></div></div>
+            {grievance.feedbackRating && <p className="text-xs text-amber-300">Feedback rating: {'★'.repeat(grievance.feedbackRating)} {grievance.feedbackComment && `· ${grievance.feedbackComment}`}</p>}
+          </article>
+        ))}
+      </section>
+
+      <section className="p-6 rounded-2xl bg-slate-900 border border-slate-800" id="civic-rewards"><div className="flex items-center justify-between mb-5"><div><h2 className="text-xl font-black text-white">Civic Rewards</h2><p className="text-xs text-slate-400 mt-1">Earn points for meaningful participation.</p></div><span className="text-xs text-slate-500">+5 register · +50 resolve · +10 feedback</span></div><div id="leaderboard"><CivicRewards points={rewardState.points} successfulComplaints={rewardState.successfulComplaints} citizen={getCitizenSession()} /></div></section>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { Grievance, DepartmentKnowledge } from './types';
+import { toCanonicalDepartment } from './departments';
 import { fetchAndParseGrievances, fetchAndParseDepartments, calculateDeterministicPriority, findRelatedHistoricalGrievances } from './dataUtils';
 
 export interface AIAnalysisResult {
@@ -71,14 +72,19 @@ export async function getDepartmentKnowledge(departmentName: string): Promise<De
   return cachedDepartments.find(d => d.department.toLowerCase() === normalizedDeptName || normalizedDeptName.includes(d.department.toLowerCase())) || null;
 }
 
-export async function analyzeGrievance(text: string, locationInput?: string): Promise<AIAnalysisResult> {
+export async function analyzeGrievance(text: string, locationInput?: string, phone = '', image?: File): Promise<AIAnalysisResult> {
   await ensureDataLoaded();
   
   // 1. Call real Featherless AI Server Endpoint
+  const formData = new FormData();
+  formData.append('complaint', text);
+  formData.append('locality', locationInput || '');
+  formData.append('phone', phone);
+  if (image) formData.append('image', image);
+
   const response = await fetch('/api/analyze-grievance', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ complaint: text })
+    body: formData
   });
   
   if (!response.ok) {
@@ -99,7 +105,7 @@ export async function analyzeGrievance(text: string, locationInput?: string): Pr
 
   // 3. Department Knowledge Lookup
   const deptInfo = await getDepartmentKnowledge(aiData.department);
-  const matchedDeptName = deptInfo ? deptInfo.department : aiData.department;
+  const matchedDeptName = toCanonicalDepartment(deptInfo?.department || aiData.department) || toCanonicalDepartment(aiData.category) || 'Public Safety';
   
   // 4. Historical Dataset Matching
   const relatedGrievances = findRelatedHistoricalGrievances(

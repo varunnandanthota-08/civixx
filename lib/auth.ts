@@ -1,13 +1,18 @@
-export type UserRole = 'citizen' | 'officer';
+export type UserRole = 'citizen' | 'officer' | 'admin';
+
+export type OfficerDepartment = 'Drainage' | 'Electricity' | 'Public Safety' | 'Roads' | 'Sanitation' | 'Water Supply' | 'Admin';
 
 export interface SessionUser {
   role: UserRole;
+  department?: OfficerDepartment;
+  identifier?: string;
 }
 
 export interface DemoUser {
   role: UserRole;
   identifier: string;
   password: string;
+  department?: OfficerDepartment;
 }
 
 const SESSION_KEY = 'civicai_session';
@@ -20,11 +25,8 @@ export const demoUsers: DemoUser[] = [
     identifier: 'citizen@civicai.demo',
     password: 'citizen123',
   },
-  {
-    role: 'officer',
-    identifier: 'officer@civicai.demo',
-    password: 'officer123',
-  },
+  ...(['Drainage', 'Electricity', 'Public Safety', 'Roads', 'Sanitation', 'Water Supply'] as OfficerDepartment[]).map((department) => ({ role: 'officer' as const, identifier: `${department.toLowerCase().replace(/ /g, '')}@civicai.demo`, password: `${department.toLowerCase().replace(/ /g, '')}123`, department })),
+  { role: 'admin', identifier: 'admin@civicai.demo', password: 'admin123', department: 'Admin' },
 ];
 
 function notifyAuthChange(): void {
@@ -41,7 +43,7 @@ export function getCurrentUser(): SessionUser | null {
     if (!raw) return null;
 
     const parsed = JSON.parse(raw) as SessionUser;
-    if (parsed.role === 'citizen' || parsed.role === 'officer') {
+    if (parsed.role === 'citizen' || parsed.role === 'officer' || parsed.role === 'admin') {
       return parsed;
     }
 
@@ -70,14 +72,16 @@ export function getDashboardPath(role: UserRole): string {
 export function login(
   role: UserRole,
   identifier: string,
-  password: string
+  password: string,
+  department?: OfficerDepartment
 ): { success: true } | { success: false; error: string } {
   const normalizedIdentifier = identifier.trim();
   const matchedUser = demoUsers.find(
     (user) =>
       user.role === role &&
       user.identifier === normalizedIdentifier &&
-      user.password === password
+      user.password === password &&
+      (role === 'citizen' || user.department === department)
   );
 
   if (!matchedUser) {
@@ -87,7 +91,7 @@ export function login(
     };
   }
 
-  const session: SessionUser = { role: matchedUser.role };
+  const session: SessionUser = { role: matchedUser.role, identifier: matchedUser.identifier, department: matchedUser.department };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   notifyAuthChange();
 

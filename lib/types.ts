@@ -24,6 +24,46 @@ export interface Grievance {
   recommended_action: string;
   actual_resolution_hours: number | null;
   systemic_cluster: string;
+  workflowCreatedAt?: string;
+  workflowSlaStatus?: 'SLA Met' | 'SLA Breached';
+  workflowTimeRemaining?: string;
+  resolutionNote?: string;
+  history?: ResolutionEvent[];
+}
+
+export type CitizenGrievanceStatus = 'Registered' | 'AI Analyzed' | 'Assigned' | 'Confirmed Assigned' | 'In Progress' | 'Resolved';
+
+export interface ResolutionEvent {
+  status: CitizenGrievanceStatus;
+  timestamp: string;
+  department: string;
+  action: string;
+}
+
+export interface CitizenGrievance {
+  grievanceId: string;
+  createdAt: string;
+  suggestedSLAHours: number;
+  status: CitizenGrievanceStatus;
+  feedbackRating: number | null;
+  feedbackComment: string;
+  feedbackSubmittedAt: string | null;
+  description: string;
+  location: string;
+  phone: string;
+  department: string;
+  category: string;
+  priority: string;
+  priorityScore: number;
+  recommendedAction: string;
+  finalResolutionNote: string;
+  history: ResolutionEvent[];
+  rewardEvents: string[];
+  assignedDepartment?: string;
+  assignedOfficer?: string;
+  statusUpdatedAt?: string;
+  resolutionNote?: string;
+  resolvedAt?: string;
 }
 
 export interface DepartmentKnowledge {

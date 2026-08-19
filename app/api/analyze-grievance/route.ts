@@ -6,11 +6,32 @@ const DEFAULT_MODEL = 'Qwen/Qwen2.5-7B-Instruct';
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { complaint } = body;
+    const contentType = req.headers.get('content-type') || '';
+    let complaint: unknown;
+    let image: File | null = null;
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await req.formData();
+      complaint = formData.get('complaint');
+      const imageValue = formData.get('image');
+      image = imageValue instanceof File ? imageValue : null;
+    } else {
+      const body = await req.json();
+      complaint = body.complaint;
+    }
 
     if (!complaint || typeof complaint !== 'string' || complaint.trim().length === 0) {
       return NextResponse.json({ error: 'Invalid or missing complaint text.' }, { status: 400 });
+    }
+
+    if (image) {
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(image.type)) {
+        return NextResponse.json({ error: 'Only JPG, PNG, and WEBP images are allowed.' }, { status: 400 });
+      }
+      if (image.size > 5 * 1024 * 1024) {
+        return NextResponse.json({ error: 'Image must be 5 MB or smaller.' }, { status: 400 });
+      }
     }
 
     const apiKey = process.env.FEATHERLESS_API_KEY?.trim();

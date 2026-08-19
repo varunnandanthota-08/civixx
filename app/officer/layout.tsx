@@ -5,5 +5,5 @@ export default function OfficerLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <RouteGuard allowedRoles={['officer']}>{children}</RouteGuard>;
+  return <RouteGuard allowedRoles={['officer', 'admin']}>{children}</RouteGuard>;
 }
